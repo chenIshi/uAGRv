@@ -12,18 +12,22 @@ Assumptions:
 	1. No link buffer overflow
 	2. No arithmetic overflow
 	3. Every generator send traffic with the same ID only once
+	4. Don't consider packet drop for now: senders iteratively send responses in order
 	    
 Objectives:
 	1. All traffic are aggregated? (might have to use LTL "eventually")
 */
 
-// {byte, byte, byte} := {traffic ID, traffic value}
-chan links[2] = [10] of {byte, byte}
+// {byte, byte, byte} := {traffic ID}
 
-active proctype aggregator()
-{	byte latest_id, aggrd_cnt;
+mtype = {number, signal};
+
+proctype aggregator(chan link; chan result)
+{	int latest_id, aggrd_cnt;
+	int forward_cnt, id;
+
 	do
-	:: links?id,val ->
+	:: link?number(id) ->
 		if
 		:: id > latest_id ->
 			latest_id = id;
@@ -31,18 +35,38 @@ active proctype aggregator()
 		:: id == latest_id ->
 			aggrd_cnt ++;
 			if
-			:: aggrd_cnt >= 2 -> 
+			:: aggrd_cnt < 2 -> skip
 			// forward aggred traffic
+			:: aggrd_cnt == 2 -> forward_cnt ++
+			:: else -> assert(false)
 			fi;
-		:: id < latest_id ->
-			// drop or forward back traffic
-			
-	od
+		// drop or forward back traffic
+		:: id < latest_id -> skip
+		:: else -> assert(false)
+		fi		
+	:: link?signal(id) ->
+		result!forward_cnt;
+		break
+	od;
 }
 
-active proctype generator(chan link)
+proctype sender(chan link)
 {
-
+	int i;
+	for (i : 1 .. 10) {
+		link!number(i);
+	}
+	link!signal(1);
 }
 
+init {
+	chan link = [20] of {mtype, int};
+	chan result = [5] of {int};
+	int forward_cnt;
+	run aggregator(link, result);
+	run sender(link);
+	run sender(link);
+	result?forward_cnt;
+	printf("result: %d\n", forward_cnt);
+}
 
